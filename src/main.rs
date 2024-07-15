@@ -1,36 +1,22 @@
 #![allow(dead_code, unused)]
-use rpc_router::{
-    FromResources, Handler, HandlerResult, IntoParams, Request, Resources, Router, RpcHandlerError,
-    RpcParams,
-};
-use serde::{Deserialize, Serialize};
+
+pub mod prelude;
+use prelude::*;
+
+use rpc_router::{FromResources, Handler, Request, Resources, Router, RpcParams};
+use serde::Deserialize;
 use serde_json::json;
-
-pub type Result<T> = core::result::Result<T, Error>;
-
-#[derive(Debug, RpcHandlerError, Serialize)]
-pub enum Error {}
-
-#[derive(Clone)]
-pub struct ModelManager {}
-impl FromResources for ModelManager {}
-
-#[derive(Clone)]
-pub struct RequestContext {
-    pub user_id: u32,
-    pub org_id: u32,
-}
-impl FromResources for RequestContext {}
 
 #[derive(Clone)]
 pub struct AppState {}
 impl FromResources for AppState {}
 
-#[derive(Deserialize)]
-pub struct ParamsIded {
-    pub id: i64,
+#[derive(Clone)]
+pub struct RequestContext {
+    pub user_id: u32,
+    pub username: String,
 }
-impl IntoParams for ParamsIded {}
+impl FromResources for RequestContext {}
 
 #[derive(Deserialize, RpcParams)]
 pub struct TaskCreate {
@@ -38,20 +24,17 @@ pub struct TaskCreate {
     pub assignee: Option<u32>,
 }
 
-pub async fn increment_id(app: AppState, ctx: RequestContext, params: TaskCreate) -> Result<i64> {
-    println!("Hello there!, {}", ctx.user_id);
-    Ok(35)
+pub async fn create_task(app: AppState, ctx: RequestContext, params: TaskCreate) -> Result<u32> {
+    println!("Hello, {}!", ctx.user_id);
+    Ok(25)
 }
 
 #[async_std::main]
 async fn main() -> core::result::Result<(), Box<dyn std::error::Error>> {
-    // -- Build the Router with the builder
     let rpc_router = Router::builder()
-        // Minor optimization over `.append(...)` to avoid monomorphization
-        .append_dyn("increment_id", increment_id.into_dyn())
+        .append_dyn("increment_id", create_task.into_dyn())
         .build();
 
-    // -- Build the reqeust
     let rpc_request: Request = json!({
         "jsonrpc": "2.0",
         "id": null, // the json rpc id, that will get echoed back, can be null
@@ -63,35 +46,23 @@ async fn main() -> core::result::Result<(), Box<dyn std::error::Error>> {
     })
     .try_into()?;
 
-    let app_state = AppState {};
-    let request_context = RequestContext {
-        user_id: 50131,
-        org_id: 172259,
-    };
-
-    // -- Build the Resources for this call via the builer
     let rpc_resources = Resources::builder()
         .append(AppState {})
-        .append(request_context)
+        .append(RequestContext {
+            user_id: 21,
+            username: "JimmyDeSanta25".to_string(),
+        })
         .build();
 
-    // -- Execute
-    let call_result = rpc_router
+    let result = rpc_router
         .call_with_resources(rpc_request, rpc_resources)
-        .await;
+        .await
+        .unwrap();
 
-    // -- Display result
-    match call_result {
-        Ok(call_response) => println!(
-            "Success: rpc-id {:?}, method: {}, returned value: {:?}",
-            call_response.id, call_response.method, call_response.value
-        ),
-        Err(call_error) => println!(
-            "Error: rpc-id {:?}, method: {}, error {:?}",
-            call_error.id, call_error.method, call_error.error
-        ),
-        // To extract app error type, see code below (examples/c00-readme.md)
-    }
+    println!(
+        "ID: {}\nMethod: {}\nValue: {}",
+        result.id, result.method, result.value
+    );
 
     Ok(())
 }
