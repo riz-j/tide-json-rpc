@@ -3,7 +3,9 @@
 pub mod prelude;
 use prelude::*;
 
-use rpc_router::{FromResources, Handler, Request, Resources, Router, RpcParams};
+use rpc_router::{
+    CallError, CallResponse, FromResources, Handler, Request, Resources, Router, RpcParams,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -29,16 +31,24 @@ pub async fn create_task(app: AppState, ctx: RequestContext, params: TaskCreate)
     Ok(25)
 }
 
+pub async fn print_hello(ctx: RequestContext, params: TaskCreate) -> Result<()> {
+    return Err(Error::FailedOperation);
+
+    println!("Hello, {}!", ctx.username);
+    Ok(())
+}
+
 #[async_std::main]
 async fn main() -> core::result::Result<(), Box<dyn std::error::Error>> {
     let rpc_router = Router::builder()
-        .append_dyn("increment_id", create_task.into_dyn())
+        .append("create_task", create_task)
+        .append("print_hello", print_hello)
         .build();
 
     let rpc_request: Request = json!({
         "jsonrpc": "2.0",
         "id": null, // the json rpc id, that will get echoed back, can be null
-        "method": "increment_id",
+        "method": "print_hello",
         "params": {
             // "id": 425
             "name": "Joe Schmoe"
@@ -56,13 +66,34 @@ async fn main() -> core::result::Result<(), Box<dyn std::error::Error>> {
 
     let result = rpc_router
         .call_with_resources(rpc_request, rpc_resources)
-        .await
-        .unwrap();
+        .await;
 
-    println!(
-        "ID: {}\nMethod: {}\nValue: {}",
-        result.id, result.method, result.value
-    );
+    match result {
+        Ok(result) => println!(
+            "ID: {}\nMethod: {}\nValue: {}",
+            result.id, result.method, result.value
+        ),
+        Err(call_error) => {
+            println!(
+                "Error for request id: {}, method: {}",
+                call_error.id, call_error.method
+            );
+            match call_error.error {
+                // It's a application handler type wrapped in a rpc_router CallError
+                // we need to know it's type to extract it.
+                rpc_router::Error::Handler(mut handler_error) => {
+                    // We can remove it not needed anymore
+                    if let Some(my_error) = handler_error.remove::<crate::prelude::Error>() {
+                        println!("Error: {my_error:?}")
+                    } else {
+                        println!("Unhandled App Error: {handler_error:?}");
+                    }
+                }
+                // if it is other rpc_router error, can be handled normally
+                other => println!("{other:?}"),
+            }
+        }
+    };
 
     Ok(())
 }
